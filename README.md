@@ -57,4 +57,4 @@ python3 /vol/data/pbb_plasmid_seq/pbb_plasmid_seq.py \
 
 
 ## How to cite? Reference
-This repository.
+de Oliveira J.A.V.S., Ng V., Wolff K., Pucker B. (2026). NanoPlasmiQC: Full plasmid sequencing with ONT long-reads and automatic data analysis. bioRxiv 2026.04.01.715842; doi: [10.64898/2026.04.01.715842](https://doi.org/10.64898/2026.04.01.715842).
