@@ -1,7 +1,7 @@
 ### Boas Pucker ###
 ### pucker@uni-bonn.de ###
 
-__version__ = "v0.1.0"
+__version__ = "v0.1.2"
 
 __usage__ = """
 			python3 clean_plasmid_seq_input.py
@@ -24,8 +24,6 @@ def main( arguments ):
 	seq_len_cutoff = 50000	#50kb
 	appendix = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"	#used for renaming multiple FASTA seqs
 	extensions = [ "fasta", "fas", "fa", "FASTA", "FAS", "FA" ]
-	illegal_character = [ " ", ":", ";", ",", "+", "#", "-", "(", ")", "[", "]" ]	#should not be necessary in future
-
 
 	if input_folder[-1] != "/":
 		input_folder += "/"
@@ -47,8 +45,16 @@ def main( arguments ):
 			
 			# --- load data from FASTA file --- #
 			ID = ".".join( filename.split('/')[-1].split('.')[:-1] )
-			for each in illegal_character:
-				ID = ID.replace( each, "_" )
+			new_ID = []
+			for each in ID:
+				if each in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_":	#excludes all special characters
+					new_ID.append( each )
+				else:
+					new_ID.append( "_" )
+			ID = "".join( new_ID ) + ""
+			ID = ID.replace( "__", "_" ).replace( "__", "_" )
+			if ID[-1] == "_":
+				ID = ID[:-1]
 			#print( ID )
 			seqs = {}
 			with open( filename, "r" ) as f:
