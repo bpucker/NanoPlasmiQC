@@ -56,5 +56,8 @@ python3 /vol/data/pbb_plasmid_seq/pbb_plasmid_seq.py \
 `--threads` specifies the number of threads to use. Default: 4.
 
 
-## How to cite? Reference
+## How to cite? 
+We recommend a sentence like this in your method section: "Plasmids were confirmed by nanopore long-read sequencing based on the NanoPlasmiQC workflow v0.1.2.4 (de Oliveira et al., 2026).".
+
+## Reference
 de Oliveira J.A.V.S., Ng V., Wolff K., Pucker B. (2026). NanoPlasmiQC: Full plasmid sequencing with ONT long-reads and automatic data analysis. bioRxiv 2026.04.01.715842; doi: [10.64898/2026.04.01.715842](https://doi.org/10.64898/2026.04.01.715842).
