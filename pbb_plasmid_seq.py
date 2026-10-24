@@ -1,6 +1,6 @@
 ### Boas Pucker ###
 ### pucker@uni-bonn.de ###
-__version__ = "v0.1.2.4"
+__version__ = "v0.1.3.0"
 
 __usage__ = """
 						PBB plasmid sequencing workflow (""" + __version__ +""")
@@ -11,8 +11,15 @@ __usage__ = """
 						--tmp <TMP_FOLDER>
 						
 						optional:
-						--minimap <PATH_TO_MINIMAP2>
-						--samtools <PATH_TO_SAMTOOLS>
+						--minimap <PATH_TO_MINIMAP2>[minimap2]
+						--miniasm <PATH_TO_MINIASM>[miniasm]
+						--samtools <PATH_TO_SAMTOOLS>[samtools]
+						--unicycler <PATH_TO_UNICYCLER>[unicycler]
+						--flye <PATH_TO_FLYE>[flye]
+						--seqkit <PATH_TO_SEQKIT>[seqkit]
+						--seqtk <PATH_TO_SEQTK>[seqtk]
+						--racon <PATH_TO_RACON>[racon]
+						--bcftools <PATH_TO_BCFTOOLS>[bcftools]
 						--threads <NUMBER_THREADS>[8]
 						
 						bug reports and feature requests: pucker@uni-bonn.de
@@ -133,6 +140,11 @@ def main( arguments ):
 	else:
 		miniasm = "miniasm"
 	
+	if '--unicycler' in arguments:
+		unicycler = arguments[ arguments.index('--unicycler')+1 ]
+	else:
+		unicycler = "unicycler"
+	
 	if '--racon' in arguments:
 		racon = arguments[ arguments.index('--racon')+1 ]
 	else:
@@ -227,6 +239,46 @@ def main( arguments ):
 		
 			# index file
 			p = subprocess.Popen( args= " ".join( [ 	samtools, "index", bam_per_ref, "2>>", doc_file5 ] ), shell=True )
+			p.communicate()				
+		
+		# filter BAM file 
+		clean_bam_per_ref = output_folder + seq + ".clean.bam"
+		min_read_len = 1000
+		softclip_and_insertion_cutoff = 10
+		cmd = samtools + """ view -h """ + bam_per_ref + r""" | awk 'BEGIN {OFS="\t"} /^@/ {print; next}
+		{
+			cigar = $6
+			aligned_length = 0
+			keep = 1
+
+			# Calculate aligned length and check insertion sizes
+			while (match(cigar, /[0-9]+[MIDNSHP=X]/)) {
+				op = substr(cigar, RSTART+RLENGTH-1, 1)
+				n = substr(cigar, RSTART, RLENGTH-1)
+
+				if (op == "M" || op == "=" || op == "X")
+					aligned_length += n
+
+				if (op == "I" && n > """ + str( softclip_and_insertion_cutoff ) + """) {
+					keep = 0
+					break
+				}
+
+				cigar = substr(cigar, RSTART+RLENGTH)
+			}
+
+			# Retain reads with sufficient aligned length
+			if (keep && aligned_length >= """ + str( min_read_len ) + """)
+				print
+		}' | """ + samtools + " view -b -o " + clean_bam_per_ref
+		
+		if not os.path.isfile( clean_bam_per_ref ):
+			p = subprocess.Popen( args=cmd, shell=True )
+			p.communicate()
+			log( "BAM cleaning done" )
+		
+			# index file
+			p = subprocess.Popen( args= " ".join( [ 	samtools, "index", clean_bam_per_ref, "2>>", doc_file5 ] ), shell=True )
 			p.communicate()
 		
 		
@@ -240,11 +292,18 @@ def main( arguments ):
 		
 		
 		#extract mapped reads into FASTQ file
-		fastq_file = tmp_folder + seq + ".fastq.gz"
-		p = subprocess.Popen( args= " ".join( [ samtools, "fastq -F 2308", bam_per_ref, "|", seqkit, "rmdup -n | gzip >", fastq_file, "2>>", doc_file5 ] ), shell=True )
+		tmp_fastq_file = tmp_folder + seq + ".fastq"
+		p = subprocess.Popen( args= " ".join( [ samtools, "fastq -F 2308", clean_bam_per_ref, ">", tmp_fastq_file, "2>>", doc_file5 ] ), shell=True )
 		#-F 2308: unmapped (4); secondary (256); supplementary (2048)
+		#seqkit duplicate removal taken out
 		p.communicate()
 		log( "FASTQ done" )
+		
+		#gzip compression of FASTQ file
+		fastq_file = tmp_folder + seq + ".fastq.gz"
+		p = subprocess.Popen( args= " ".join( ["gzip -c", tmp_fastq_file, ">", fastq_file,"2>>", doc_file5 ] ), shell=True )
+		p.communicate()
+		log( "compression of FASTQ file done" )
 		
 		#calculate coverage and calculate read reduction factor
 		genome_size = len( ref_seqs[ seq ] )
@@ -262,31 +321,32 @@ def main( arguments ):
 		
 		#conduct variant calling
 		vcf_file = output_folder + seq + ".vcf"
-		p = subprocess.Popen( args= " ".join( [ bcftools, "mpileup -f", fasta_file, "-Q 10 -q 10", bam_per_ref, "|", bcftools, "call -mv -o", vcf_file, "2>>", doc_file5 ] ), shell=True )
+		p = subprocess.Popen( args= " ".join( [ bcftools, "mpileup -f", fasta_file, "-Q 10 -q 10", clean_bam_per_ref, "|", bcftools, "call -mv -o", vcf_file, "2>>", doc_file5 ] ), shell=True )
 		p.communicate()
 		#p = subprocess.Popen( args= " ".join( [ bcftools, "index", vcf_file, "2>>", doc_file5 ] ), shell=True )
 		#p.communicate()
-		coverage_cutoff = min( [ int( 0.2*current_coverage ), 10 ] )	#minimal coverage is 20% of average coverage, but at least 10
+		coverage_cutoff = min( [ int( 0.2*current_coverage ), 20 ] )	#minimal coverage is 20% of average coverage, but at least 20
 		filtered_vcf_file = output_folder + seq + ".clean.vcf"
 		p = subprocess.Popen( args= " ".join( [ bcftools, "filter -i 'QUAL>20 && DP>" + str( coverage_cutoff ) + "'", vcf_file, "-o", filtered_vcf_file, "2>>", doc_file5 ] ), shell=True )
 		p.communicate()
 		log( "Variant calling done" )
 		
 		#randomly reduce number of reads
+		subset_fastq_file = output_folder + seq + ".subset.fastq.gz"
 		if ratio_to_keep < 1:
-			subset_fastq_file = output_folder + seq + ".subset.fastq.gz"
 			p = subprocess.Popen( args= " ".join( [ 	seqtk, "sample -s42", fastq_file, str( ratio_to_keep ), "| gzip >", subset_fastq_file, "2>>", doc_file5 ] ), shell=True )
 			#randomly take X% of reads
 			p.communicate()
 			log( "FASTQ filtering done" )
 		else:
-			p = subprocess.Popen( args= " ".join( [ 	"cat", fastq_file, "| gzip >", subset_fastq_file, "2>>", doc_file5 ] ), shell=True )
+			p = subprocess.Popen( args= " ".join( [ 	"cp", fastq_file, subset_fastq_file, "2>>", doc_file5 ] ), shell=True )
 			p.communicate()
 			log( "No subsampling needed" )
 		
-		#assemble plasmid sequence with flye
+		#assemble plasmid sequence
 		if assembly_status:	#would allow to switch this off
 			
+			# --- miniasm assembly --- #
 			miniasm_result_folder = tmp_folder + seq + ".miniasm/"
 			if not os.path.exists( miniasm_result_folder ):
 				os.makedirs( miniasm_result_folder )
@@ -321,18 +381,32 @@ def main( arguments ):
 																				"2>>", doc_file5
 																			] ), shell=True )
 				p.communicate()
-				log( "Mapping to assembly done" )
+				log( "Mapping to miniasm assembly done" )
 				
 				polished_assembly_file = miniasm_result_folder + "polished_assembly.fasta"
 				p = subprocess.Popen( args= " ".join( [ racon, subset_fastq_file, assembly_paf_file, assembly_file, ">", polished_assembly_file, "2>>", doc_file5 ] ), shell=True )
 				p.communicate()
-				log( "Assembly polishing done" )
+				log( "Miniasm assembly polishing done" )
 				
 				#copy assembly from that output folder				
-				p = subprocess.Popen( args= " ".join( [ "cp", polished_assembly_file, output_folder + seq + ".assembly.fasta", "2>>", doc_file5 ] ), shell=True )
+				p = subprocess.Popen( args= " ".join( [ "cp", polished_assembly_file, output_folder + seq + ".miniasm.assembly.fasta", "2>>", doc_file5 ] ), shell=True )
 				p.communicate()
 				
 				log( "Miniasm assembly process and correction done" )
+			
+			# --- unicycler assembly --- #
+			unicycler_result_folder = tmp_folder + seq + ".unicycler/"
+			if not os.path.exists( unicycler_result_folder ):
+				p = subprocess.Popen( args= " ".join( [ unicycler, "-l " + subset_fastq_file, "-o " + unicycler_result_folder, "-t " +threads, "--mode normal 2>>", doc_file5 ] ), shell=True )
+				p.communicate()
+				log( "Unicycler assembly done" )
+				
+				#copy assembly from that output folder				
+				p = subprocess.Popen( args= " ".join( [ "cp", unicycler_result_folder + "assembly.fasta", output_folder + seq + ".unicycler.assembly.fasta", "2>>", doc_file5 ] ), shell=True )
+				p.communicate()
+				
+				log( "Unicycler assembly cleaning done" )
+
 	log( "Process complete. You can share results now." )
 
 
