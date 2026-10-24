@@ -1,6 +1,6 @@
 ### Boas Pucker ###
 ### pucker@uni-bonn.de ###
-__version__ = "v0.1.3.0"
+__version__ = "v0.1.3.1"
 
 __usage__ = """
 						PBB plasmid sequencing workflow (""" + __version__ +""")
@@ -21,6 +21,8 @@ __usage__ = """
 						--racon <PATH_TO_RACON>[racon]
 						--bcftools <PATH_TO_BCFTOOLS>[bcftools]
 						--threads <NUMBER_THREADS>[8]
+						--min_read_len <MIN_READ_LEN>[1000]
+						--softclip <SOFT_CLIP_AND_INSERTS>[20]
 						
 						bug reports and feature requests: pucker@uni-bonn.de
 					"""
@@ -165,6 +167,16 @@ def main( arguments ):
 		if arguments[ arguments.index('--assembly')+1 ] == "off":
 			assembly_status = False
 	
+	if '--min_read_len' in arguments:
+		min_read_len = int( arguments[ arguments.index('--min_read_len')+1 ] )
+	else:
+		min_read_len = 1000
+	
+	if '--softclip' in arguments:
+		softclip_and_insertion_cutoff = int( arguments[ arguments.index('--softclip')+1 ] )
+	else:
+		softclip_and_insertion_cutoff = 20
+	
 	if output_folder[-1] != "/":
 		output_folder += "/"
 	
@@ -243,8 +255,6 @@ def main( arguments ):
 		
 		# filter BAM file 
 		clean_bam_per_ref = output_folder + seq + ".clean.bam"
-		min_read_len = 1000
-		softclip_and_insertion_cutoff = 10
 		cmd = samtools + """ view -h """ + bam_per_ref + r""" | awk 'BEGIN {OFS="\t"} /^@/ {print; next}
 		{
 			cigar = $6
